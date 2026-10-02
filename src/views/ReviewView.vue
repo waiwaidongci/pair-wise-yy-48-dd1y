@@ -1,8 +1,13 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useLinkageStore } from '../stores/linkage'
+import { useTagoutStore } from '../stores/tagout'
 
 const store = useLinkageStore()
+const tagout = useTagoutStore()
+const resumeCount = computed(() => tagout.batches.filter((batch) => batch.status === '部分写入').length)
+const rejectedCount = computed(() => tagout.batches.filter((batch) => batch.status === '已驳回').length)
+const pendingFb = computed(() => tagout.feedbacks.filter((fb) => fb.state === '待确认').length)
 const checklist = ref([
   { done: true, title: '设备地址与竣工图一致', owner: '消防电专业' },
   { done: true, title: '所有报警点完成单点调试', owner: '调试组' },
@@ -41,6 +46,11 @@ function exportPackage() {
 
     <v-alert v-if="!canLock && !store.locked" type="warning" variant="tonal" class="mb-3">签字前需清除所有错误规则并完成联调清单。</v-alert>
     <v-alert v-if="store.locked" type="success" variant="tonal" class="mb-3">当前版本 R{{ store.revision }} 已签字锁定，任何修改都会生成新的修订草稿。</v-alert>
+
+    <v-alert v-if="resumeCount || rejectedCount || pendingFb" type="info" variant="tonal" class="mb-3">
+      挂牌与回传：{{ resumeCount }} 个批次部分写入待按批次号续作，{{ rejectedCount }} 个批次被先到批次驳回（保留冲突依据），{{ pendingFb }} 条回传待确认。
+      <v-btn variant="text" color="primary" size="small" class="ml-2" @click="$router.push('/tagout')">前往挂牌回传工作台</v-btn>
+    </v-alert>
 
     <div class="review-grid">
       <section class="panel">

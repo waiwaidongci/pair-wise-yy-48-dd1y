@@ -1,5 +1,6 @@
 import { computed, ref, watch } from 'vue'
 import { defineStore } from 'pinia'
+import { useTagoutStore } from './tagout'
 
 export type DeviceType = '感烟探测器' | '感温探测器' | '手动报警按钮' | '输入模块' | '输出模块' | '排烟风机' | '防火卷帘' | '消防广播' | '电梯'
 export type Device = { id: string; name: string; type: DeviceType; floor: string; zone: string; address: string }
@@ -50,6 +51,7 @@ export const useLinkageStore = defineStore('linkage', () => {
   const selectedRuleIds = ref<string[]>([])
 
   const validations = computed<Validation[]>(() => {
+    const tagout = useTagoutStore()
     const result: Validation[] = []
     const triggers = devices.value.filter((device) => ['感烟探测器', '感温探测器', '手动报警按钮', '输入模块'].includes(device.type))
     for (const trigger of triggers) {
@@ -71,6 +73,32 @@ export const useLinkageStore = defineStore('linkage', () => {
       }
       if (rule.interlock && rule.delay > 5 && rule.priority === 1) {
         result.push({ id: `contradiction-${rule.id}`, severity: '错误', ruleIds: [rule.id], title: `${rule.id} 互锁与高优先级延时冲突`, detail: '一级优先规则在互锁未明确反馈前延时超过 5 秒。', suggestion: '缩短延时或改为反馈后触发。' })
+      }
+    })
+    // 挂牌闭锁：只看启停不够，挂牌设备的动作不得当作已满足；疏散动作按已签优先级继续
+    rules.value.filter((rule) => rule.enabled).forEach((rule) => {
+      const state = tagout.ruleBlockState(rule)
+      if (state === 'blocked') {
+        const action = devices.value.find((device) => device.id === rule.actionId)
+        const tag = tagout.coveringTag(rule.actionId)
+        result.push({
+          id: `tag-block-${rule.id}`,
+          severity: '错误',
+          ruleIds: [rule.id],
+          title: `${rule.id} 挂牌闭锁，启停状态不作为满足依据`,
+          detail: `动作设备 ${action?.name ?? rule.actionId} 被挂牌 ${tag?.id ?? ''} 覆盖（申请人 ${tag?.applicant ?? ''}），检修期间不得动作。`,
+          suggestion: '摘牌或调整挂牌范围后重算；疏散动作按已签优先级继续。',
+        })
+      } else if (state === 'continued') {
+        const tag = tagout.coveringTag(rule.actionId)
+        result.push({
+          id: `tag-continue-${rule.id}`,
+          severity: '警告',
+          ruleIds: [rule.id],
+          title: `${rule.id} 挂牌期间疏散动作按已签优先级继续`,
+          detail: `动作设备已挂牌 ${tag?.id ?? ''}，但属疏散动作且规则优先级 ≤ 已签优先级，允许继续。`,
+          suggestion: '摘牌后自动恢复常规校验。',
+        })
       }
     })
     return result

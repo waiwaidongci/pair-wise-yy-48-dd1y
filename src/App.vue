@@ -2,9 +2,11 @@
 import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useLinkageStore } from './stores/linkage'
+import { useTagoutStore } from './stores/tagout'
 
 const route = useRoute()
 const store = useLinkageStore()
+const tagout = useTagoutStore()
 const drawer = ref(true)
 const title = computed(() => String(route.meta.title ?? '消防联动'))
 
@@ -14,6 +16,7 @@ const items = [
   { to: '/matrix', title: '因果矩阵', icon: 'mdi-grid-large' },
   { to: '/dependency', title: '依赖图', icon: 'mdi-graph-outline' },
   { to: '/review', title: '版本审阅', icon: 'mdi-file-compare' },
+  { to: '/tagout', title: '挂牌回传', icon: 'mdi-lock-outline' },
 ]
 </script>
 
@@ -31,6 +34,7 @@ const items = [
         <div class="side-status">
           <div><span class="status-dot" :class="{ locked: store.locked }" />{{ store.locked ? '基线已签字锁定' : '协同编辑中' }}</div>
           <small>版本 R{{ store.revision }} · {{ store.validations.length }} 项校验提示</small>
+          <small v-if="tagout.blockedRuleIds.length" class="tagout-warn">挂牌闭锁 {{ tagout.blockedRuleIds.length }} 条规则</small>
         </div>
       </template>
     </v-navigation-drawer>
@@ -59,6 +63,7 @@ const items = [
 .side-status { margin: 12px; padding: 12px; border: 1px solid rgba(255,255,255,.1); border-radius: 8px; color: #dce6e9; background: rgba(255,255,255,.04); }
 .side-status div { font-size: 11px; font-weight: 700; }
 .side-status small { display: block; margin-top: 6px; color: #93a7ad; font-size: 9px; }
+.side-status .tagout-warn { color: #e8a08d; font-weight: 700; }
 .status-dot { display: inline-block; width: 7px; height: 7px; margin-right: 5px; border-radius: 50%; background: #59b58a; }
 .status-dot.locked { background: #d79a45; }
 .app-bar { border-bottom: 1px solid #e0e5e5; background: white; }

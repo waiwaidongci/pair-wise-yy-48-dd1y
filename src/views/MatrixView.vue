@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useLinkageStore } from '../stores/linkage'
+import { useTagoutStore } from '../stores/tagout'
 
 const store = useLinkageStore()
+const tagout = useTagoutStore()
 const query = ref('')
 const showOnlyEnabled = ref(false)
 const batchDelay = ref(0)
@@ -34,6 +36,10 @@ const rows = computed(() => store.rules.filter((rule) => {
       <v-text-field v-model="query" density="compact" hide-details prepend-inner-icon="mdi-magnify" label="搜索规则或设备" style="max-width:320px" />
       <v-switch v-model="showOnlyEnabled" label="只看启用" color="primary" hide-details density="compact" />
       <v-divider vertical class="mx-3" />
+      <v-chip size="small" color="error" variant="tonal" prepend-icon="mdi-lock-outline">挂牌闭锁 {{ tagout.blockedRuleIds.length }}</v-chip>
+      <v-chip size="small" color="info" variant="tonal" prepend-icon="mdi-run-fast">疏散继续 {{ tagout.continuedRuleIds.length }}</v-chip>
+      <v-chip v-if="tagout.pendingFeedbackCount" size="small" color="warning" variant="tonal" prepend-icon="mdi-bell-outline">待确认回传 {{ tagout.pendingFeedbackCount }}</v-chip>
+      <v-spacer />
       <span class="batch-label">批量编辑 {{ selectedIds.length }} 条</span>
       <v-text-field v-model.number="batchDelay" type="number" label="延时(s)" density="compact" hide-details style="max-width:92px" />
       <v-select v-model="batchPriority" :items="[1,2,3]" label="优先级" density="compact" hide-details style="max-width:100px" />
@@ -49,17 +55,25 @@ const rows = computed(() => store.rules.filter((rule) => {
           <tr><th></th><th>规则</th><th>触发点位</th><th>动作点位</th><th>延时</th><th>互锁条件</th><th>优先级</th><th>抑制条件</th><th>启用</th><th>冲突</th></tr>
         </thead>
         <tbody>
-          <tr v-for="rule in rows" :key="rule.id" :class="{ 'row-error': store.validations.some((item) => item.severity === '错误' && item.ruleIds.includes(rule.id)) }">
+          <tr v-for="rule in rows" :key="rule.id" :class="{ 'row-error': store.validations.some((item) => item.severity === '错误' && item.ruleIds.includes(rule.id)), 'row-blocked': tagout.ruleBlockState(rule) === 'blocked' }">
             <td><v-checkbox-btn :model-value="selectedIds.includes(rule.id)" @update:model-value="(value) => selectedIds = value ? [...selectedIds, rule.id] : selectedIds.filter((id) => id !== rule.id)" /></td>
             <td><strong>{{ rule.id }}</strong></td>
             <td>{{ store.devices.find((device) => device.id === rule.triggerId)?.name }}</td>
-            <td>{{ store.devices.find((device) => device.id === rule.actionId)?.name }}</td>
+            <td>
+              {{ store.devices.find((device) => device.id === rule.actionId)?.name }}
+              <v-chip v-if="tagout.isDeviceBlocked(rule.actionId)" size="x-small" color="error" variant="tonal" class="ml-1">挂牌闭锁</v-chip>
+            </td>
             <td><v-text-field :model-value="rule.delay" type="number" density="compact" hide-details style="width:80px" @update:model-value="store.updateRule(rule.id, { delay: Number($event) })" /></td>
             <td><v-text-field :model-value="rule.interlock" density="compact" hide-details style="min-width:160px" @update:model-value="store.updateRule(rule.id, { interlock: String($event) })" /></td>
             <td><v-select :model-value="rule.priority" :items="[1,2,3]" density="compact" hide-details style="width:82px" @update:model-value="store.updateRule(rule.id, { priority: Number($event) as 1|2|3 })" /></td>
             <td>{{ rule.suppression }}</td>
             <td><v-switch :model-value="rule.enabled" color="primary" hide-details density="compact" @update:model-value="store.updateRule(rule.id, { enabled: Boolean($event) })" /></td>
-            <td><v-chip v-if="store.validations.some((item) => item.ruleIds.includes(rule.id))" size="x-small" color="error" variant="tonal">需处理</v-chip><span v-else class="muted">—</span></td>
+            <td>
+              <v-chip v-if="tagout.ruleBlockState(rule) === 'blocked'" size="x-small" color="error" variant="tonal">挂牌闭锁</v-chip>
+              <v-chip v-else-if="tagout.ruleBlockState(rule) === 'continued'" size="x-small" color="info" variant="tonal">疏散继续</v-chip>
+              <v-chip v-else-if="store.validations.some((item) => item.ruleIds.includes(rule.id))" size="x-small" color="warning" variant="tonal">需处理</v-chip>
+              <span v-else class="muted">—</span>
+            </td>
           </tr>
         </tbody>
       </v-data-table>
@@ -74,5 +88,7 @@ const rows = computed(() => store.rules.filter((rule) => {
 .table-wrap { overflow-x: auto; }
 .table-wrap :deep(table) { min-width: 1280px; }
 .row-error { background: #fff5f0; }
+.row-blocked { background: #fdf0ee; }
+.row-blocked td:last-child { opacity: 1; }
 .muted { color: #849096; }
 </style>

@@ -3,11 +3,14 @@ import { computed } from 'vue'
 import { useQuery } from '@vue/apollo-composable'
 import { LINKAGE_QUERY } from '../api/apollo'
 import { useLinkageStore } from '../stores/linkage'
+import { useTagoutStore } from '../stores/tagout'
 
 const store = useLinkageStore()
+const tagout = useTagoutStore()
 const { result } = useQuery(LINKAGE_QUERY)
 const errorCount = computed(() => store.validations.filter((item) => item.severity === '错误').length)
 const warningCount = computed(() => store.validations.filter((item) => item.severity === '警告').length)
+const blockedCount = computed(() => tagout.blockedRuleIds.length)
 </script>
 
 <template>
@@ -33,12 +36,12 @@ const warningCount = computed(() => store.validations.filter((item) => item.seve
 
     <div class="overview-grid">
       <section class="panel">
-        <div class="panel-head"><h3>矩阵完整性</h3><v-chip size="small" color="success" variant="tonal">已覆盖 {{ store.devices.filter((device) => store.rules.some((rule) => rule.triggerId === device.id)).length }}/{{ store.devices.filter((device) => ['感烟探测器','感温探测器','手动报警按钮'].includes(device.type)).length }} 探测回路</v-chip></div>
+        <div class="panel-head"><h3>矩阵完整性</h3><v-chip size="small" :color="blockedCount ? 'warning' : 'success'" variant="tonal">挂牌闭锁 {{ blockedCount }} 条</v-chip></div>
         <div class="coverage-list">
           <div v-for="device in store.devices.filter((item) => ['感烟探测器','感温探测器','手动报警按钮'].includes(item.type))" :key="device.id">
             <div><strong>{{ device.name }}</strong><small>{{ device.floor }} / {{ device.zone }} · {{ device.address }}</small></div>
-            <v-chip size="small" :color="store.rules.some((rule) => rule.triggerId === device.id && rule.enabled) ? 'success' : 'error'" variant="tonal">
-              {{ store.rules.filter((rule) => rule.triggerId === device.id && rule.enabled).length ? `${store.rules.filter((rule) => rule.triggerId === device.id && rule.enabled).length} 个动作` : '缺少动作' }}
+            <v-chip size="small" :color="tagout.isDeviceBlocked(device.id) ? 'warning' : store.rules.some((rule) => rule.triggerId === device.id && tagout.isRuleSatisfied(rule)) ? 'success' : 'error'" variant="tonal">
+              {{ tagout.isDeviceBlocked(device.id) ? '挂牌闭锁' : store.rules.some((rule) => rule.triggerId === device.id && tagout.isRuleSatisfied(rule)) ? `${store.rules.filter((rule) => rule.triggerId === device.id && tagout.isRuleSatisfied(rule)).length} 个动作` : '缺少动作' }}
             </v-chip>
           </div>
         </div>
