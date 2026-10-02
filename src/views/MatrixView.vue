@@ -29,6 +29,9 @@ const rows = computed(() => store.rules.filter((rule) => {
     <v-alert v-if="store.validations.length" type="warning" variant="tonal" density="compact" class="mb-3">
       发现 {{ store.validations.filter((item) => item.severity === '错误').length }} 个错误和 {{ store.validations.filter((item) => item.severity === '警告').length }} 个警告。跨区冲突、重复动作与互锁矛盾需要审阅确认。
     </v-alert>
+    <v-alert v-if="store.activeTags.length" type="info" variant="tonal" density="compact" class="mb-3" prepend-icon="mdi-tag-lock-outline">
+      当前 {{ store.activeTags.length }} 个挂牌范围生效（共用依据 {{ store.basisId }}）。矩阵“满足判定”已按挂牌覆盖重算：动作侧挂牌的非疏散规则立即判为未满足；疏散动作仍按已签优先级执行，不再只看启停。
+    </v-alert>
 
     <div class="toolbar panel">
       <v-text-field v-model="query" density="compact" hide-details prepend-inner-icon="mdi-magnify" label="搜索规则或设备" style="max-width:320px" />
@@ -46,19 +49,38 @@ const rows = computed(() => store.rules.filter((rule) => {
     <div class="panel table-wrap">
       <v-data-table v-model="selectedIds" :items="rows" item-value="id" show-select density="compact" :items-per-page="12">
         <thead>
-          <tr><th></th><th>规则</th><th>触发点位</th><th>动作点位</th><th>延时</th><th>互锁条件</th><th>优先级</th><th>抑制条件</th><th>启用</th><th>冲突</th></tr>
+          <tr><th></th><th>规则</th><th>触发点位</th><th>动作点位</th><th>延时</th><th>互锁条件</th><th>优先级</th><th>抑制条件</th><th>启用</th><th>满足判定（依据 {{ store.basisId }}）</th><th>冲突</th></tr>
         </thead>
         <tbody>
-          <tr v-for="rule in rows" :key="rule.id" :class="{ 'row-error': store.validations.some((item) => item.severity === '错误' && item.ruleIds.includes(rule.id)) }">
+          <tr v-for="rule in rows" :key="rule.id" :class="{ 'row-error': store.validations.some((item) => item.severity === '错误' && item.ruleIds.includes(rule.id)), 'row-locked': store.evaluationOf(rule.id)?.blocked }">
             <td><v-checkbox-btn :model-value="selectedIds.includes(rule.id)" @update:model-value="(value) => selectedIds = value ? [...selectedIds, rule.id] : selectedIds.filter((id) => id !== rule.id)" /></td>
             <td><strong>{{ rule.id }}</strong></td>
-            <td>{{ store.devices.find((device) => device.id === rule.triggerId)?.name }}</td>
-            <td>{{ store.devices.find((device) => device.id === rule.actionId)?.name }}</td>
+            <td>
+              {{ store.devices.find((device) => device.id === rule.triggerId)?.name }}
+              <v-chip v-if="store.taggedDeviceIds.has(rule.triggerId)" size="x-small" color="warning" variant="tonal">挂牌隔离</v-chip>
+            </td>
+            <td>
+              {{ store.devices.find((device) => device.id === rule.actionId)?.name }}
+              <v-chip v-if="store.taggedDeviceIds.has(rule.actionId)" size="x-small" color="warning" variant="tonal">挂牌中</v-chip>
+            </td>
             <td><v-text-field :model-value="rule.delay" type="number" density="compact" hide-details style="width:80px" @update:model-value="store.updateRule(rule.id, { delay: Number($event) })" /></td>
             <td><v-text-field :model-value="rule.interlock" density="compact" hide-details style="min-width:160px" @update:model-value="store.updateRule(rule.id, { interlock: String($event) })" /></td>
             <td><v-select :model-value="rule.priority" :items="[1,2,3]" density="compact" hide-details style="width:82px" @update:model-value="store.updateRule(rule.id, { priority: Number($event) as 1|2|3 })" /></td>
             <td>{{ rule.suppression }}</td>
             <td><v-switch :model-value="rule.enabled" color="primary" hide-details density="compact" @update:model-value="store.updateRule(rule.id, { enabled: Boolean($event) })" /></td>
+            <td>
+              <v-chip v-if="store.evaluationOf(rule.id)?.effective" size="small" color="success" variant="tonal" prepend-icon="mdi-check-circle-outline">满足</v-chip>
+              <v-tooltip v-else-if="store.evaluationOf(rule.id)?.blocked" location="top">
+                <template #activator="{ props }">
+                  <v-chip v-bind="props" size="small" color="warning" variant="tonal" prepend-icon="mdi-tag-off-outline">挂牌失效</v-chip>
+                </template>
+                <div style="max-width:300px">
+                  {{ store.evaluationOf(rule.id)?.blockReason }}
+                  <template v-if="store.evaluationOf(rule.id)?.evacuation">；疏散动作按已签优先级继续执行</template>
+                </div>
+              </v-tooltip>
+              <v-chip v-else size="small" variant="tonal" disabled>停用</v-chip>
+            </td>
             <td><v-chip v-if="store.validations.some((item) => item.ruleIds.includes(rule.id))" size="x-small" color="error" variant="tonal">需处理</v-chip><span v-else class="muted">—</span></td>
           </tr>
         </tbody>
@@ -72,7 +94,9 @@ const rows = computed(() => store.rules.filter((rule) => {
 .toolbar { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; margin-bottom: 12px; padding: 12px; }
 .batch-label { color: #68767d; font-size: 12px; }
 .table-wrap { overflow-x: auto; }
-.table-wrap :deep(table) { min-width: 1280px; }
+.table-wrap :deep(table) { min-width: 1460px; }
 .row-error { background: #fff5f0; }
+.row-locked { opacity: .82; }
+.row-locked td { background: #fbf6ec; }
 .muted { color: #849096; }
 </style>

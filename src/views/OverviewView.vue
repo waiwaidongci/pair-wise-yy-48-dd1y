@@ -1,13 +1,10 @@
 <script setup lang="ts">
-import { computed } from 'vue'
 import { useQuery } from '@vue/apollo-composable'
 import { LINKAGE_QUERY } from '../api/apollo'
 import { useLinkageStore } from '../stores/linkage'
 
 const store = useLinkageStore()
 const { result } = useQuery(LINKAGE_QUERY)
-const errorCount = computed(() => store.validations.filter((item) => item.severity === '错误').length)
-const warningCount = computed(() => store.validations.filter((item) => item.severity === '警告').length)
 </script>
 
 <template>
@@ -26,30 +23,33 @@ const warningCount = computed(() => store.validations.filter((item) => item.seve
 
     <div class="metric-grid">
       <article><span>点位总数</span><strong>{{ store.devices.length }}</strong><small>覆盖 2 个楼层分区</small></article>
-      <article><span>启用规则</span><strong>{{ store.rules.filter((rule) => rule.enabled).length }}</strong><small>{{ store.rules.length }} 条矩阵关系</small></article>
-      <article><span>阻断错误</span><strong class="error">{{ errorCount }}</strong><small>签字前必须处理</small></article>
-      <article><span>审阅警告</span><strong class="warning">{{ warningCount }}</strong><small>跨区和重复关系</small></article>
+      <article><span>重算后满足动作</span><strong>{{ [...store.evaluations.values()].filter((item) => item.effective).length }}</strong><small>{{ store.rules.length }} 条矩阵关系 · {{ store.blockedCount }} 条挂牌失效</small></article>
+      <article><span>生效挂牌</span><strong class="warning">{{ store.activeTags.length }}</strong><small>共用依据 {{ store.basisId }}</small></article>
+      <article><span>待续作 / 冲突批次</span><strong :class="store.failedBatches.length || store.conflictBatches.length ? 'error' : ''">{{ store.failedBatches.length }} / {{ store.conflictBatches.length }}</strong><small>按批次号续作 · 先到先得</small></article>
     </div>
 
     <div class="overview-grid">
       <section class="panel">
-        <div class="panel-head"><h3>矩阵完整性</h3><v-chip size="small" color="success" variant="tonal">已覆盖 {{ store.devices.filter((device) => store.rules.some((rule) => rule.triggerId === device.id)).length }}/{{ store.devices.filter((device) => ['感烟探测器','感温探测器','手动报警按钮'].includes(device.type)).length }} 探测回路</v-chip></div>
+        <div class="panel-head"><h3>矩阵完整性</h3><v-chip size="small" color="success" variant="tonal">重算满足 {{ store.devices.filter((device) => store.rules.some((rule) => rule.triggerId === device.id && store.evaluationOf(rule.id)?.effective)).length }}/{{ store.devices.filter((device) => ['感烟探测器','感温探测器','手动报警按钮'].includes(device.type)).length }} 探测回路</v-chip></div>
         <div class="coverage-list">
           <div v-for="device in store.devices.filter((item) => ['感烟探测器','感温探测器','手动报警按钮'].includes(item.type))" :key="device.id">
             <div><strong>{{ device.name }}</strong><small>{{ device.floor }} / {{ device.zone }} · {{ device.address }}</small></div>
-            <v-chip size="small" :color="store.rules.some((rule) => rule.triggerId === device.id && rule.enabled) ? 'success' : 'error'" variant="tonal">
-              {{ store.rules.filter((rule) => rule.triggerId === device.id && rule.enabled).length ? `${store.rules.filter((rule) => rule.triggerId === device.id && rule.enabled).length} 个动作` : '缺少动作' }}
+            <v-chip size="small" :color="store.rules.some((rule) => rule.triggerId === device.id && store.evaluationOf(rule.id)?.effective) ? 'success' : store.taggedDeviceIds.has(device.id) ? 'warning' : 'error'" variant="tonal">
+              <template v-if="store.taggedDeviceIds.has(device.id)">挂牌隔离中</template>
+              <template v-else-if="store.rules.filter((rule) => rule.triggerId === device.id && store.evaluationOf(rule.id)?.effective).length">{{ store.rules.filter((rule) => rule.triggerId === device.id && store.evaluationOf(rule.id)?.effective).length }} 个动作满足</template>
+              <template v-else>缺少动作</template>
             </v-chip>
           </div>
         </div>
       </section>
       <aside class="panel">
-        <div class="panel-head"><h3>专业协同进度</h3><span class="muted">当前版本 R{{ store.revision }}</span></div>
+        <div class="panel-head"><h3>专业协同进度</h3><span class="muted">当前版本 R{{ store.revision }} · {{ store.basisId }}</span></div>
         <div class="review-progress">
           <div><span>消防电专业</span><v-progress-linear :model-value="92" color="primary" height="7" rounded /><strong>92%</strong></div>
           <div><span>暖通专业</span><v-progress-linear :model-value="76" color="secondary" height="7" rounded /><strong>76%</strong></div>
           <div><span>智能化专业</span><v-progress-linear :model-value="64" color="warning" height="7" rounded /><strong>64%</strong></div>
-          <v-alert type="info" variant="tonal" density="compact" class="mt-4">暖通专业新增 PF-2 反馈互锁，等待消防审阅人部分采纳。</v-alert>
+          <v-alert type="warning" variant="tonal" density="compact" class="mt-4">夜班挂牌 {{ store.activeTags.length }} 个范围生效，{{ store.blockedCount }} 条规则已按依据 {{ store.basisId }} 失效重算；疏散动作 {{ store.evacuationActions.length }} 项按已签优先级继续。</v-alert>
+          <v-btn variant="tonal" prepend-icon="mdi-tag-lock-outline" @click="$router.push('/lockout')">进入挂牌与批次</v-btn>
         </div>
       </aside>
     </div>

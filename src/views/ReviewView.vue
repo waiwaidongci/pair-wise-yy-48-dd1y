@@ -22,11 +22,22 @@ function accept(id: string) {
 }
 
 function exportPackage() {
-  const payload = JSON.stringify({ revision: store.revision, devices: store.devices, rules: store.rules, validations: store.validations, acceptedChanges: store.acceptedChanges }, null, 2)
+  const payload = JSON.stringify({
+    revision: store.revision,
+    basisId: store.basisId,
+    devices: store.devices,
+    rules: store.rules,
+    ruleEvaluations: [...store.evaluations.entries()].map(([ruleId, evalResult]) => ({ ...evalResult, ruleId })),
+    tags: store.tags,
+    batches: store.batches,
+    callbacks: store.callbacks,
+    validations: store.validations,
+    acceptedChanges: store.acceptedChanges,
+  }, null, 2)
   const url = URL.createObjectURL(new Blob([payload], { type: 'application/json' }))
   const link = document.createElement('a')
   link.href = url
-  link.download = `消防联动交付包-R${store.revision}.json`
+  link.download = `消防联动交付包-R${store.revision}-${store.basisId}.json`
   link.click()
   URL.revokeObjectURL(url)
 }
@@ -36,7 +47,12 @@ function exportPackage() {
   <section class="page">
     <div class="page-head">
       <div><p class="eyebrow">REVIEW & SIGN-OFF / 审阅签字</p><h1>版本差异、联调清单与锁定</h1><p class="muted">多个专业提交后只接受经过审阅的变更，锁定后配置成为只读基线。</p></div>
-      <div class="actions"><v-btn variant="outlined" prepend-icon="mdi-download" @click="exportPackage">导出交付包</v-btn><v-btn v-if="!store.locked" color="primary" prepend-icon="mdi-lock-outline" :disabled="!canLock" @click="store.lockBaseline">签字锁定</v-btn><v-btn v-else color="warning" variant="outlined" @click="store.unlock">解锁修订</v-btn></div>
+      <div class="actions">
+        <v-btn variant="outlined" prepend-icon="mdi-tag-lock-outline" @click="$router.push('/lockout')">挂牌与批次 {{ store.failedBatches.length ? `（${store.failedBatches.length} 待续作）` : '' }}</v-btn>
+        <v-btn variant="outlined" prepend-icon="mdi-download" @click="exportPackage">导出交付包</v-btn>
+        <v-btn v-if="!store.locked" color="primary" prepend-icon="mdi-lock-outline" :disabled="!canLock" @click="store.lockBaseline">签字锁定</v-btn>
+        <v-btn v-else color="warning" variant="outlined" @click="store.unlock">解锁修订</v-btn>
+      </div>
     </div>
 
     <v-alert v-if="!canLock && !store.locked" type="warning" variant="tonal" class="mb-3">签字前需清除所有错误规则并完成联调清单。</v-alert>
@@ -47,9 +63,9 @@ function exportPackage() {
         <div class="panel-head"><h3>矩阵校验结果</h3><v-chip size="small" color="error" variant="tonal">{{ store.validations.length }} 项</v-chip></div>
         <div class="validation-list">
           <article v-for="item in store.validations" :key="item.id" :class="item.severity">
-            <v-icon :icon="item.severity === '错误' ? 'mdi-close-octagon-outline' : 'mdi-alert-outline'" />
+            <v-icon :icon="item.severity === '错误' ? 'mdi-close-octagon-outline' : item.severity === '警告' ? 'mdi-alert-outline' : 'mdi-tag-lock-outline'" />
             <div><strong>{{ item.title }}</strong><p>{{ item.detail }}</p><small>建议：{{ item.suggestion }}</small></div>
-            <v-btn size="small" variant="text" @click="$router.push('/matrix')">定位</v-btn>
+            <v-btn size="small" variant="text" @click="$router.push(item.severity === '提示' ? '/lockout' : '/matrix')">定位</v-btn>
           </article>
           <div v-if="store.validations.length === 0" class="empty-validation"><v-icon icon="mdi-check-decagram" size="38" color="success" /><strong>矩阵校验通过</strong><span>未发现遗漏、重复、矛盾或跨区冲突。</span></div>
         </div>
@@ -64,6 +80,28 @@ function exportPackage() {
         </section>
       </aside>
     </div>
+
+    <section class="panel change-panel">
+      <div class="panel-head"><h3>挂牌与审阅批次依据</h3><span class="muted">当前共用依据 {{ store.basisId }} · 失效重算 {{ store.blockedCount }} 条规则</span></div>
+      <v-alert v-if="store.failedBatches.length" type="warning" variant="tonal" density="compact" class="mx-3 mt-3">
+        有 {{ store.failedBatches.length }} 个批次写入失败待续作，按原批次号续作不重新发号：
+        <v-btn v-for="batch in store.failedBatches" :key="batch.batchNo" size="small" variant="text" @click="$router.push('/lockout')">{{ batch.batchNo }}（{{ batch.op }}）</v-btn>
+      </v-alert>
+      <v-table density="compact">
+        <thead><tr><th>批次号</th><th>操作</th><th>调试员</th><th>说明</th><th>提交依据</th><th>状态</th><th>冲突依据</th></tr></thead>
+        <tbody>
+          <tr v-for="batch in store.batches.slice().reverse().slice(0, 6)" :key="batch.batchNo">
+            <td class="mono"><strong>{{ batch.batchNo }}</strong></td>
+            <td>{{ batch.op }}</td>
+            <td>{{ batch.operator }}</td>
+            <td>{{ batch.note }}</td>
+            <td class="mono" :class="{ stale: batch.basisId !== store.basisId && batch.status === '已生效' }">{{ batch.basisId }}<small v-if="batch.basisId !== store.basisId" class="muted">（依据已推进，规则已重算）</small></td>
+            <td>{{ batch.status }}</td>
+            <td class="mono">{{ batch.conflictWith ? `先到 ${batch.conflictWith} / ${batch.conflictBasisId}` : '—' }}</td>
+          </tr>
+        </tbody>
+      </v-table>
+    </section>
 
     <section class="panel change-panel">
       <div class="panel-head"><h3>专业提交版本差异</h3><span class="muted">可逐项接受</span></div>
@@ -91,6 +129,7 @@ function exportPackage() {
 .validation-list article { display: grid; grid-template-columns: 28px 1fr auto; gap: 10px; padding: 13px 0; border-bottom: 1px solid #edf0f0; }
 .validation-list article.error { color: #b13d2c; }
 .validation-list article.warning { color: #b87b22; }
+.validation-list article.提示 { color: #8a6d1f; }
 .validation-list strong { font-size: 13px; }
 .validation-list p { margin: 5px 0; color: #59676d; font-size: 12px; line-height: 1.5; }
 .validation-list small { color: #7f8b90; }
@@ -101,5 +140,6 @@ function exportPackage() {
 .change-panel :deep(table) { min-width: 850px; }
 .old { color: #a54b35; }
 .new { color: #2e755e; font-weight: 700; }
+.stale { color: #b87b22; }
 @media (max-width: 1000px) { .review-grid { grid-template-columns: 1fr; } }
 </style>

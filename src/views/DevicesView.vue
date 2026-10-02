@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useLinkageStore, type Device, type DeviceType } from '../stores/linkage'
+import { scopeCovers, type LockoutTag, type TagScopeLevel } from '../linkage/domain'
 
 const store = useLinkageStore()
 const query = ref('')
@@ -10,6 +11,16 @@ const form = ref<Device>({ id: '', name: '', type: '感烟探测器', floor: '1F
 const types: DeviceType[] = ['感烟探测器', '感温探测器', '手动报警按钮', '输入模块', '输出模块', '排烟风机', '防火卷帘', '消防广播', '电梯']
 
 const filtered = computed(() => store.devices.filter((item) => (floor.value === '全部' || item.floor === floor.value) && `${item.id}${item.name}${item.address}`.includes(query.value)))
+
+function coveringTags(deviceId: string): LockoutTag[] {
+  const device = store.devices.find((item) => item.id === deviceId)
+  if (!device) return []
+  return store.activeTags.filter((tag) => scopeCovers(tag.scope, device))
+}
+
+function scopeLevelLabel(level: TagScopeLevel): string {
+  return { device: '设备', zone: '分区', floor: '楼层' }[level]
+}
 
 function addDevice() {
   if (!form.value.id || !form.value.name || !form.value.address) return
@@ -44,7 +55,13 @@ function addDevice() {
             <td>{{ device.floor }} / {{ device.zone }}</td>
             <td class="mono">{{ device.address }}</td>
             <td>{{ store.rules.filter((rule) => rule.triggerId === device.id || rule.actionId === device.id).length }} 条</td>
-            <td><v-chip size="small" color="success" variant="tonal">在线</v-chip></td>
+            <td>
+              <template v-if="store.taggedDeviceIds.has(device.id)">
+                <v-chip size="small" color="warning" variant="tonal" prepend-icon="mdi-tag-lock-outline">挂牌中</v-chip>
+                <small v-for="tag in coveringTags(device.id)" :key="tag.id" class="muted">（{{ scopeLevelLabel(tag.scope.level) }}挂牌 {{ tag.batchNo }}）</small>
+              </template>
+              <v-chip v-else size="small" color="success" variant="tonal">在线</v-chip>
+            </td>
           </tr>
         </tbody>
       </v-table>

@@ -11,6 +11,7 @@ const title = computed(() => String(route.meta.title ?? '消防联动'))
 const items = [
   { to: '/', title: '项目总览', icon: 'mdi-view-dashboard-outline' },
   { to: '/devices', title: '设备与分区', icon: 'mdi-access-point' },
+  { to: '/lockout', title: '挂牌与批次', icon: 'mdi-tag-lock-outline' },
   { to: '/matrix', title: '因果矩阵', icon: 'mdi-grid-large' },
   { to: '/dependency', title: '依赖图', icon: 'mdi-graph-outline' },
   { to: '/review', title: '版本审阅', icon: 'mdi-file-compare' },
@@ -30,7 +31,7 @@ const items = [
       <template #append>
         <div class="side-status">
           <div><span class="status-dot" :class="{ locked: store.locked }" />{{ store.locked ? '基线已签字锁定' : '协同编辑中' }}</div>
-          <small>版本 R{{ store.revision }} · {{ store.validations.length }} 项校验提示</small>
+          <small>版本 R{{ store.revision }} · 依据 {{ store.basisId }} · {{ store.validations.length }} 项校验提示</small>
         </div>
       </template>
     </v-navigation-drawer>

@@ -17,7 +17,10 @@ function targetY(id: string) { return actionY(actions.value.findIndex((item) => 
   <section class="page">
     <div class="page-head">
       <div><p class="eyebrow">DEPENDENCY GRAPH / 条件依赖</p><h1>触发、互锁与动作路径</h1><p class="muted">点击规则连线定位具体因果关系；跨区连线显示为橙色警示。</p></div>
-      <v-chip variant="tonal" prepend-icon="mdi-alert-outline">{{ store.validations.length }} 个待确认路径</v-chip>
+      <div style="display:flex;gap:8px;align-items:center">
+        <v-chip variant="tonal" prepend-icon="mdi-alert-outline">{{ store.validations.filter((item) => item.severity !== '提示').length }} 个待确认路径</v-chip>
+        <v-chip v-if="store.activeTags.length" variant="tonal" color="warning" prepend-icon="mdi-tag-lock-outline">{{ store.blockedCount }} 条路径挂牌失效 · 依据 {{ store.basisId }}</v-chip>
+      </div>
     </div>
 
     <div class="graph-wrap panel">
@@ -25,6 +28,7 @@ function targetY(id: string) { return actionY(actions.value.findIndex((item) => 
         <defs>
           <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#60777e" /></marker>
           <marker id="arrow-warn" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#bd6f2a" /></marker>
+          <marker id="arrow-lock" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#8a6d1f" /></marker>
         </defs>
         <text x="80" y="26" class="column-title">触发点位</text>
         <text x="790" y="26" class="column-title">动作设备</text>
@@ -42,16 +46,21 @@ function targetY(id: string) { return actionY(actions.value.findIndex((item) => 
           <path
             :d="`M 270 ${sourceY(rule.triggerId)} C 500 ${sourceY(rule.triggerId)}, 530 ${targetY(rule.actionId)}, 760 ${targetY(rule.actionId)}`"
             fill="none"
-            :class="['edge', { disabled: !rule.enabled, selected: selectedRule === rule.id, warning: store.validations.some((item) => item.ruleIds.includes(rule.id)) }]"
-            :marker-end="store.validations.some((item) => item.ruleIds.includes(rule.id)) ? 'url(#arrow-warn)' : 'url(#arrow)'"
+            :class="['edge', { disabled: !rule.enabled, selected: selectedRule === rule.id, warning: store.validations.some((item) => item.severity !== '提示' && item.ruleIds.includes(rule.id)), locked: store.evaluationOf(rule.id)?.blocked }]"
+            :marker-end="store.evaluationOf(rule.id)?.blocked ? 'url(#arrow-lock)' : store.validations.some((item) => item.severity !== '提示' && item.ruleIds.includes(rule.id)) ? 'url(#arrow-warn)' : 'url(#arrow)'"
           />
-          <circle :cx="515" :cy="(sourceY(rule.triggerId) + targetY(rule.actionId)) / 2" r="12" class="rule-node" />
+          <circle :cx="515" :cy="(sourceY(rule.triggerId) + targetY(rule.actionId)) / 2" r="12" :class="['rule-node', { 'rule-locked': store.evaluationOf(rule.id)?.blocked }]" />
           <text :x="515" :y="(sourceY(rule.triggerId) + targetY(rule.actionId)) / 2 + 4" text-anchor="middle" class="rule-id">{{ rule.id.slice(-3) }}</text>
         </g>
       </svg>
       <div class="graph-side" v-if="selectedRule">
         <v-btn icon="mdi-close" size="small" variant="text" @click="selectedRule = null" />
         <strong>{{ selectedRule }}</strong>
+        <v-alert v-if="store.evaluationOf(selectedRule)?.blocked" type="warning" variant="tonal" density="compact" class="mb-2">
+          依据 {{ store.evaluationOf(selectedRule)?.basisId }} 重算：{{ store.evaluationOf(selectedRule)?.blockReason }}
+          <template v-if="store.evaluationOf(selectedRule)?.evacuation"><br />疏散动作不中断，按已签 P{{ store.evaluationOf(selectedRule)?.priority }} 继续。</template>
+        </v-alert>
+        <v-alert v-else type="success" variant="tonal" density="compact" class="mb-2">当前依据 {{ store.evaluationOf(selectedRule)?.basisId }} 下满足判定通过。</v-alert>
         <v-select :model-value="store.rules.find((rule) => rule.id === selectedRule)?.priority" :items="[1,2,3]" label="优先级" density="compact" />
         <v-text-field :model-value="store.rules.find((rule) => rule.id === selectedRule)?.interlock" label="互锁条件" density="compact" />
         <v-switch :model-value="store.rules.find((rule) => rule.id === selectedRule)?.enabled" label="规则启用" color="primary" @update:model-value="store.updateRule(selectedRule!, { enabled: Boolean($event) })" />
@@ -72,8 +81,10 @@ svg { display: block; min-width: 900px; width: 100%; background: radial-gradient
 .edge { stroke: #60777e; stroke-width: 2; opacity: .75; cursor: pointer; }
 .edge.selected { stroke: #1e6772; stroke-width: 4; opacity: 1; }
 .edge.warning { stroke: #bd6f2a; stroke-dasharray: 7 5; opacity: 1; }
+.edge.locked { stroke: #8a6d1f; stroke-dasharray: 2 6; stroke-linecap: round; stroke-width: 3; opacity: .9; }
 .edge.disabled { stroke: #aeb8bb; opacity: .35; }
 .rule-node { fill: white; stroke: #597177; stroke-width: 1.5; }
+.rule-node.rule-locked { fill: #f7ecd2; stroke: #8a6d1f; }
 .rule-id { fill: #4f666d; font-size: 8px; font-weight: 800; }
 .edge-group { cursor: pointer; }
 .graph-side { position: absolute; top: 18px; right: 18px; width: 260px; padding: 14px; border: 1px solid #dbe2e3; border-radius: 9px; background: rgba(255,255,255,.96); box-shadow: 0 8px 25px rgba(31,54,62,.12); }
